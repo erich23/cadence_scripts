@@ -1,13 +1,12 @@
-import BnGNFTContract from 0xProfile
+import BnGNFT from 0xProfile
 
 transaction (id:UInt64) {
-    collectionRef : &BnGNFTContract.BnGNFTCollection
-    prepare(acct: AuthAccount) {
+    prepare(acctAdmin: AuthAccount) {
         // Create a new empty collection
-        self.collectionRef = acctAdmin.borrow<&BnGNFTContract.BnGNFTCollection>(from: /storage/BnGNFTCollection)
+        let collectionRef : &BnGNFT.Collection = acctAdmin.borrow<&BnGNFT.Collection>(from: BnGNFT.CollectionStoragePath) ?? panic("Couldn't get collection reference")
+        let token <- collectionRef.ownedNFTs.remove(key: id)!
+        destroy token
     }
     execute {
-        let token <-self.collectionRef.ownedNFTs.remove(key: id)!
-        destroy token
     }
 }

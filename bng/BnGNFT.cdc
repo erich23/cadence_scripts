@@ -15,11 +15,13 @@ pub contract BnGNFT : NonFungibleToken {
 
     // Declare the NFT resource type
     pub resource NFT : NonFungibleToken.INFT {
+        pub let metadata : {String:String}
         // The unique ID that differentiates each NFT
         pub let id: UInt64
         // Initialize the field in the init function
-        init(initID: UInt64) {
+        init(initID: UInt64, metadata: {String:String}) {
             self.id = initID
+            self.metadata = metadata
         }
     }
 
@@ -136,10 +138,10 @@ pub contract BnGNFT : NonFungibleToken {
         //
         // Function that mints a new NFT with a new ID
         // and returns it to the caller
-        pub fun mintNFT(): @BnGNFT.NFT {
+        pub fun mintNFT(metadata:{String:String}): @BnGNFT.NFT {
 
             // create a new NFT
-            var newNFT <- create BnGNFT.NFT(initID: BnGNFT.totalSupply)
+            var newNFT <- create BnGNFT.NFT(initID: BnGNFT.totalSupply, metadata: metadata)
             BnGNFT.totalSupply = BnGNFT.totalSupply + 1 as UInt64
             
             return <-newNFT
