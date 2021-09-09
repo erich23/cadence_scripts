@@ -1,3 +1,4 @@
+import NonFungibleToken from "./NonFungibleToken.cdc"
 // BnGNFT.cdc
 //
 // This is a complete version of the ExampleNFT contract
@@ -9,10 +10,11 @@
 //
 // Learn more about non-fungible tokens in this tutorial: https://docs.onflow.org/docs/non-fungible-tokens
 
-pub contract BnGNFTContract {
+pub contract BnGNFT : NonFungibleToken {
+
 
     // Declare the NFT resource type
-    pub resource NFT {
+    pub resource NFT : NonFungibleToken.INFT {
         // The unique ID that differentiates each NFT
         pub let id: UInt64
         // Initialize the field in the init function
@@ -25,54 +27,55 @@ pub contract BnGNFTContract {
     // to create public, restricted references to their NFT Collection.
     // They would use this to only expose the deposit, getIDs,
     // and idExists fields in their Collection
-    pub resource interface NFTReceiver {
+    pub resource interface BnGNFTCollectionPublic {
 
-        pub fun deposit(token: @NFT, metadata: {String:String})
+        pub fun deposit(token: @NonFungibleToken.NFT)
 
         pub fun getIDs(): [UInt64]
 
-        pub fun idExists(id: UInt64): Bool
+        pub fun borrowNFT(id: UInt64): &NonFungibleToken.NFT
 
-        pub fun getMetadataByID(id: UInt64): {String: String}
+        pub fun borrowBnGNFT(id: UInt64): &BnGNFT.NFT? {
+            // If the result isn't nil, the id of the returned reference
+            // should be the same as the argument to the function
+            post {
+                (result == nil) || (result?.id == id):
+                    "Cannot borrow BnGNFT reference: The ID of the returned reference is incorrect"
+            }
+        }
     }
 
     // The definition of the Collection resource that
     // holds the NFTs that a user owns
-    pub resource Collection: NFTReceiver {
+    pub resource Collection: BnGNFTCollectionPublic, NonFungibleToken.Provider, NonFungibleToken.Receiver, NonFungibleToken.CollectionPublic {
         // dictionary of NFT conforming tokens
         // NFT is a resource type with an `UInt64` ID field
-        pub var ownedNFTs: @{UInt64: NFT}
-        pub var NFTMetadata: {UInt64: { String : String }}
+        pub var ownedNFTs: @{UInt64: NonFungibleToken.NFT}
 
         // Initialize the NFTs field to an empty collection
         init () {
             self.ownedNFTs <- {}
-            self.NFTMetadata = {}
         }
 
         // withdraw 
         //
         // Function that removes an NFT from the collection 
         // and moves it to the calling context
-        pub fun withdraw(withdrawID: UInt64): @NFT {
+        pub fun withdraw(withdrawID: UInt64): @NonFungibleToken.NFT {
             // If the NFT isn't found, the transaction panics and reverts
             let token <- self.ownedNFTs.remove(key: withdrawID)!
-
+            emit Withdraw(id: token.id, from: self.owner?.address)
             return <-token
         }
 
         // deposit 
-        pub fun deposit(token: @NFT, metadata:{String:String}) {
+        pub fun deposit(token: @NonFungibleToken.NFT) {
             // add the new token to the dictionary with a force assignment
             // if there is already a value at that key, it will fail and revert
-            self.NFTMetadata[token.id] = metadata
-            self.ownedNFTs[token.id] <-! token
-        }
-
-        // idExists checks to see if a NFT 
-        // with the given ID exists in the collection
-        pub fun idExists(id: UInt64): Bool {
-            return self.ownedNFTs[id] != nil
+            let token <- token as! @BnGNFT.NFT
+            let id: UInt64 = token.id
+            self.ownedNFTs[id] <-! token
+            emit Deposit(id: id, to: self.owner?.address)
         }
 
         // getIDs returns an array of the IDs that are in the collection
@@ -80,9 +83,28 @@ pub contract BnGNFTContract {
             return self.ownedNFTs.keys
         }
 
-        pub fun getMetadataByID(id: UInt64): {String: String} {
-            return self.NFTMetadata[id]!
+        // borrowNFT
+        // Gets a reference to an NFT in the collection
+        // so that the caller can read its metadata and call its methods
+        //
+        pub fun borrowNFT(id: UInt64): &NonFungibleToken.NFT {
+            return &self.ownedNFTs[id] as &NonFungibleToken.NFT
         }
+
+        // borrowKittyItem
+        // Gets a reference to an NFT in the collection as a KittyItem,
+        // exposing all of its fields (including the typeID).
+        // This is safe as there are no functions that can be called on the KittyItem.
+        //
+        pub fun borrowBnGNFT(id: UInt64): &BnGNFT.NFT? {
+            if self.ownedNFTs[id] != nil {
+                let ref = &self.ownedNFTs[id] as auth &NonFungibleToken.NFT
+                return ref as! &BnGNFT.NFT
+            } else {
+                return nil
+            }
+        }
+
 
         destroy() {
             destroy self.ownedNFTs
@@ -90,7 +112,7 @@ pub contract BnGNFTContract {
     }
 
     // creates a new empty Collection resource and returns it 
-    pub fun createEmptyCollection(): @Collection {
+    pub fun createEmptyCollection(): @NonFungibleToken.Collection {
         return <- create Collection()
     }
 
@@ -114,28 +136,41 @@ pub contract BnGNFTContract {
         //
         // Function that mints a new NFT with a new ID
         // and returns it to the caller
-        pub fun mintNFT(): @NFT {
-            
-            // create a new NFT
-            var newNFT <- create NFT(initID: self.idCount)
+        pub fun mintNFT(): @BnGNFT.NFT {
 
-            // change the id so that each ID is unique
-            self.idCount = self.idCount + 1 as UInt64
+            // create a new NFT
+            var newNFT <- create BnGNFT.NFT(initID: BnGNFT.totalSupply)
+            BnGNFT.totalSupply = BnGNFT.totalSupply + 1 as UInt64
             
             return <-newNFT
         }
     }
 
-	init() {
-		// // store an empty NFT Collection in account storage
-        // self.account.save(<-self.createEmptyCollection(), to: /storage/NFTCollection)
+    pub var totalSupply: UInt64
 
-        // // publish a reference to the Collection in storage
-        // self.account.link<&{NFTReceiver}>(/public/NFTReceiver, target: /storage/NFTCollection)
+    //events
+    pub event ContractInitialized()
+    pub event Withdraw(id: UInt64, from: Address?)
+    pub event Deposit(id: UInt64, to: Address?)
+    
+
+    // Named Paths
+    pub let CollectionStoragePath: StoragePath
+    pub let CollectionPublicPath: PublicPath
+    pub let MinterStoragePath: StoragePath
+
+	init() {
+
+        self.CollectionStoragePath = /storage/BnGNFTCollection
+        self.CollectionPublicPath = /public/BnGNFTCollection
+        self.MinterStoragePath = /storage/NFTMinter
+
+        self.totalSupply = 0
 
         // store a minter resource in account storage
-        self.account.save(<-create NFTMinter(), to: /storage/NFTMinter)
+        self.account.save(<-create NFTMinter(), to: self.MinterStoragePath)
+
+        emit ContractInitialized()
 	}
 }
  
-
